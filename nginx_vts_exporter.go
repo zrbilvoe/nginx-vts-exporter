@@ -233,14 +233,32 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		log.Println("ioutil.ReadAll failed", err)
 		return
 	}
-
 	var nginxVtx NginxVts
 	err = json.Unmarshal(data, &nginxVtx)
 	if err != nil {
 		log.Println("json.Unmarshal failed", err)
 		return
 	}
-
+	// upstream 去重
+	temp := make(map[string][]Upstream)
+	for k0, v0 := range nginxVtx.UpstreamZones {
+		for _, v1 := range v0 {
+			if temp[k0] != nil {
+				have := false
+				for i := 0; i < len(temp[k0]); i++ {
+					if v1.Server == temp[k0][i].Server {
+						have = true
+					}
+				}
+				if !have {
+					temp[k0] = append(temp[k0], v1)
+				}
+			} else {
+				temp[k0] = append(make([]Upstream, 0), v1)
+			}
+		}
+	}
+	nginxVtx.UpstreamZones = temp
 	// info
 	uptime := (nginxVtx.NowMsec - nginxVtx.LoadMsec) / 1000
 	ch <- prometheus.MustNewConstMetric(e.infoMetric, prometheus.GaugeValue, float64(uptime), nginxVtx.HostName, nginxVtx.NginxVersion)
@@ -282,9 +300,10 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	// UpstreamZones
 	for name, upstreamList := range nginxVtx.UpstreamZones {
 		for _, s := range upstreamList {
-			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["responseMsec"], prometheus.GaugeValue, float64(s.ResponseMsec), name, s.Server)
 			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["requestMsec"], prometheus.GaugeValue, float64(s.RequestMsec), name, s.Server)
-
+			if float64(s.RequestMsec) == 0 {
+				ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["responseMsec"], prometheus.GaugeValue, float64(0), name, s.Server)
+			}
 			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["requests"], prometheus.CounterValue, float64(s.RequestCounter), name, "total", s.Server)
 			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["requests"], prometheus.CounterValue, float64(s.Responses.OneXx), name, "1xx", s.Server)
 			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["requests"], prometheus.CounterValue, float64(s.Responses.TwoXx), name, "2xx", s.Server)
@@ -300,8 +319,10 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	// FilterZones
 	for filter, values := range nginxVtx.FilterZones {
 		for name, stat := range values {
-			ch <- prometheus.MustNewConstMetric(e.filterMetrics["responseMsec"], prometheus.GaugeValue, float64(stat.ResponseMsec), filter, name)
 			ch <- prometheus.MustNewConstMetric(e.filterMetrics["requestMsec"], prometheus.GaugeValue, float64(stat.RequestMsec), filter, name)
+			if float64(stat.RequestMsec) == 0 {
+				ch <- prometheus.MustNewConstMetric(e.filterMetrics["responseMsec"], prometheus.GaugeValue, float64(0), filter, name)
+			}
 			ch <- prometheus.MustNewConstMetric(e.filterMetrics["requests"], prometheus.CounterValue, float64(stat.RequestCounter), filter, name, "total")
 			ch <- prometheus.MustNewConstMetric(e.filterMetrics["requests"], prometheus.CounterValue, float64(stat.Responses.OneXx), filter, name, "1xx")
 			ch <- prometheus.MustNewConstMetric(e.filterMetrics["requests"], prometheus.CounterValue, float64(stat.Responses.TwoXx), filter, name, "2xx")
@@ -352,7 +373,7 @@ var (
 	listenAddress      = flag.String("telemetry.address", ":9913", "Address on which to expose metrics.")
 	metricsEndpoint    = flag.String("telemetry.endpoint", "/metrics", "Path under which to expose metrics.")
 	metricsNamespace   = flag.String("metrics.namespace", "nginx", "Prometheus metrics namespace.")
-	nginxScrapeURI     = flag.String("nginx.scrape_uri", "http://localhost/status", "URI to nginx stub status page")
+	nginxScrapeURI     = flag.String("nginx.scrape_uri", "http://172.17.5.118/status/format/json", "URI to nginx stub status page")
 	insecure           = flag.Bool("insecure", true, "Ignore server certificate if using https")
 	nginxScrapeTimeout = flag.Int("nginx.scrape_timeout", 2, "The number of seconds to wait for an HTTP response from the nginx.scrape_uri")
 )
