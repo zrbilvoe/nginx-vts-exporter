@@ -22,7 +22,7 @@ type NginxVts struct {
 	NginxVersion string `json:"nginxVersion"`
 	LoadMsec     int64  `json:"loadMsec"`
 	NowMsec      int64  `json:"nowMsec"`
-	Connections  struct {
+	Connections struct {
 		Active   uint64 `json:"active"`
 		Reading  uint64 `json:"reading"`
 		Writing  uint64 `json:"writing"`
@@ -42,7 +42,7 @@ type Server struct {
 	InBytes        uint64 `json:"inBytes"`
 	OutBytes       uint64 `json:"outBytes"`
 	RequestMsec    uint64 `json:"requestMsec"`
-	Responses      struct {
+	Responses struct {
 		OneXx       uint64 `json:"1xx"`
 		TwoXx       uint64 `json:"2xx"`
 		ThreeXx     uint64 `json:"3xx"`
@@ -83,7 +83,7 @@ type Upstream struct {
 	RequestCounter uint64 `json:"requestCounter"`
 	InBytes        uint64 `json:"inBytes"`
 	OutBytes       uint64 `json:"outBytes"`
-	Responses      struct {
+	Responses struct {
 		OneXx   uint64 `json:"1xx"`
 		TwoXx   uint64 `json:"2xx"`
 		ThreeXx uint64 `json:"3xx"`
@@ -97,7 +97,7 @@ type Upstream struct {
 	FailTimeout  uint64 `json:"failTimeout"`
 	Backup       bool   `json:"backup"`
 	Down         bool   `json:"down"`
-	OverCounts   struct {
+	OverCounts struct {
 		MaxIntegerSize float64 `json:"maxIntegerSize"`
 		RequestCounter uint64  `json:"requestCounter"`
 		InBytes        uint64  `json:"inBytes"`
@@ -111,10 +111,10 @@ type Upstream struct {
 }
 
 type Cache struct {
-	MaxSize   uint64 `json:"maxSize"`
-	UsedSize  uint64 `json:"usedSize"`
-	InBytes   uint64 `json:"inBytes"`
-	OutBytes  uint64 `json:"outBytes"`
+	MaxSize  uint64 `json:"maxSize"`
+	UsedSize uint64 `json:"usedSize"`
+	InBytes  uint64 `json:"inBytes"`
+	OutBytes uint64 `json:"outBytes"`
 	Responses struct {
 		Miss        uint64 `json:"miss"`
 		Bypass      uint64 `json:"bypass"`
@@ -301,7 +301,13 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	for name, upstreamList := range nginxVtx.UpstreamZones {
 		for _, s := range upstreamList {
 			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["requestMsec"], prometheus.GaugeValue, float64(s.RequestMsec), name, s.Server)
+<<<<<<< HEAD
 			if float64(s.RequestMsec) == 0 {
+=======
+			if float64(s.RequestMsec) > 0 {
+				ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["responseMsec"], prometheus.GaugeValue, float64(s.ResponseMsec), name, s.Server)
+			} else {
+>>>>>>> 62fd27f2438be5fee86e7dbcb87bcd5408a25ee5
 				ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["responseMsec"], prometheus.GaugeValue, float64(0), name, s.Server)
 			}
 			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["requests"], prometheus.CounterValue, float64(s.RequestCounter), name, "total", s.Server)
@@ -320,7 +326,13 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	for filter, values := range nginxVtx.FilterZones {
 		for name, stat := range values {
 			ch <- prometheus.MustNewConstMetric(e.filterMetrics["requestMsec"], prometheus.GaugeValue, float64(stat.RequestMsec), filter, name)
+<<<<<<< HEAD
 			if float64(stat.RequestMsec) == 0 {
+=======
+			if float64(stat.RequestMsec) > 0 {
+				ch <- prometheus.MustNewConstMetric(e.filterMetrics["responseMsec"], prometheus.GaugeValue, float64(stat.ResponseMsec), filter, name)
+			} else {
+>>>>>>> 62fd27f2438be5fee86e7dbcb87bcd5408a25ee5
 				ch <- prometheus.MustNewConstMetric(e.filterMetrics["responseMsec"], prometheus.GaugeValue, float64(0), filter, name)
 			}
 			ch <- prometheus.MustNewConstMetric(e.filterMetrics["requests"], prometheus.CounterValue, float64(stat.RequestCounter), filter, name, "total")
