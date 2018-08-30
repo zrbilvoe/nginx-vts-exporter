@@ -265,9 +265,8 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 
 	// 读取上次UpstreamZones数据
 	pid := strconv.Itoa(os.Getpid())
-	inpuitFile := pid + "-Upstream.json"
-	buf, err := ioutil.ReadFile(inpuitFile)
-
+	fileName := "/dev/shm/" + pid + "-Upstream.json"
+	buf, err := ioutil.ReadFile(fileName)
 	tempCache := make(map[string][]Upstream)
 	err2 := json.Unmarshal(buf, &tempCache)
 	if err2 != nil {
@@ -317,13 +316,13 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 			//	log.Printf("%d %s", i, oldValue)
 			//如果server没有请求,强制响应时间为0
 			if len(nginxVtx.UpstreamZonesCache[name]) > i {
-				if s.Server == nginxVtx.UpstreamZonesCache[name][i].Server {
-					if s.RequestCounter == nginxVtx.UpstreamZonesCache[name][i].RequestCounter {
-						ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["responseMsec"], prometheus.GaugeValue, float64(0), name, s.Server)
-					} else {
-						ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["responseMsec"], prometheus.GaugeValue, float64(s.ResponseMsec), name, s.Server)
-					}
+				if s.Server == nginxVtx.UpstreamZonesCache[name][i].Server && s.RequestCounter == nginxVtx.UpstreamZonesCache[name][i].RequestCounter {
+					ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["responseMsec"], prometheus.GaugeValue, float64(0), name, s.Server)
+				} else {
+					ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["responseMsec"], prometheus.GaugeValue, float64(s.ResponseMsec), name, s.Server)
 				}
+			} else {
+				ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["responseMsec"], prometheus.GaugeValue, float64(s.ResponseMsec), name, s.Server)
 			}
 			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["requestMsec"], prometheus.GaugeValue, float64(s.RequestMsec), name, s.Server)
 			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["requests"], prometheus.CounterValue, float64(s.RequestCounter), name, "total", s.Server)
@@ -345,7 +344,6 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 
-	fileName := pid + "-Upstream.json"
 	outputFile, outputError := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE, 0666)
 	if outputError != nil {
 		fmt.Printf("An error occurred with file opening or creation\n")
