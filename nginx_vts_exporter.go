@@ -265,7 +265,8 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 
 	// 读取上次UpstreamZones数据
 	pid := strconv.Itoa(os.Getpid())
-	fileName := "/dev/shm/" + pid + "-Upstream.json"
+	fileName := "/dev/shm/Upstream-" + pid + "." + "json"
+
 	buf, err := ioutil.ReadFile(fileName)
 	tempCache := make(map[string][]Upstream)
 	err2 := json.Unmarshal(buf, &tempCache)
