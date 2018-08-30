@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/tls"
 	"encoding/json"
 	"flag"
@@ -10,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,10 +33,11 @@ type NginxVts struct {
 		Handled  uint64 `json:"handled"`
 		Requests uint64 `json:"requests"`
 	} `json:"connections"`
-	ServerZones   map[string]Server              `json:"serverZones"`
-	UpstreamZones map[string][]Upstream          `json:"upstreamZones"`
-	FilterZones   map[string]map[string]Upstream `json:"filterZones"`
-	CacheZones    map[string]Cache               `json:"cacheZones"`
+	ServerZones        map[string]Server              `json:"serverZones"`
+	UpstreamZones      map[string][]Upstream          `json:"upstreamZones"`
+	UpstreamZonesCache map[string][]Upstream          `json:"upstreamZonesCache"`
+	FilterZones        map[string]map[string]Upstream `json:"filterZones"`
+	CacheZones         map[string]Cache               `json:"cacheZones"`
 }
 
 type Server struct {
@@ -259,6 +262,19 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		}
 	}
 	nginxVtx.UpstreamZones = temp
+
+	// 读取上次UpstreamZones数据
+	pid := strconv.Itoa(os.Getpid())
+	inpuitFile := pid + "-Upstream.json"
+	buf, err := ioutil.ReadFile(inpuitFile)
+
+	tempCache := make(map[string][]Upstream)
+	err2 := json.Unmarshal(buf, &tempCache)
+	if err2 != nil {
+		log.Printf("", err2)
+	}
+	nginxVtx.UpstreamZonesCache = tempCache
+
 	// info
 	uptime := (nginxVtx.NowMsec - nginxVtx.LoadMsec) / 1000
 	ch <- prometheus.MustNewConstMetric(e.infoMetric, prometheus.GaugeValue, float64(uptime), nginxVtx.HostName, nginxVtx.NginxVersion)
@@ -280,7 +296,6 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(e.serverMetrics["requests"], prometheus.CounterValue, float64(s.Responses.ThreeXx), host, "3xx")
 		ch <- prometheus.MustNewConstMetric(e.serverMetrics["requests"], prometheus.CounterValue, float64(s.Responses.FourXx), host, "4xx")
 		ch <- prometheus.MustNewConstMetric(e.serverMetrics["requests"], prometheus.CounterValue, float64(s.Responses.FiveXx), host, "5xx")
-
 		ch <- prometheus.MustNewConstMetric(e.serverMetrics["cache"], prometheus.CounterValue, float64(s.Responses.Bypass), host, "bypass")
 		ch <- prometheus.MustNewConstMetric(e.serverMetrics["cache"], prometheus.CounterValue, float64(s.Responses.Expired), host, "expired")
 		ch <- prometheus.MustNewConstMetric(e.serverMetrics["cache"], prometheus.CounterValue, float64(s.Responses.Hit), host, "hit")
@@ -289,21 +304,28 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(e.serverMetrics["cache"], prometheus.CounterValue, float64(s.Responses.Scarce), host, "scarce")
 		ch <- prometheus.MustNewConstMetric(e.serverMetrics["cache"], prometheus.CounterValue, float64(s.Responses.Stale), host, "stale")
 		ch <- prometheus.MustNewConstMetric(e.serverMetrics["cache"], prometheus.CounterValue, float64(s.Responses.Updating), host, "updating")
-
 		ch <- prometheus.MustNewConstMetric(e.serverMetrics["bytes"], prometheus.CounterValue, float64(s.InBytes), host, "in")
 		ch <- prometheus.MustNewConstMetric(e.serverMetrics["bytes"], prometheus.CounterValue, float64(s.OutBytes), host, "out")
-
 		ch <- prometheus.MustNewConstMetric(e.serverMetrics["requestMsec"], prometheus.GaugeValue, float64(s.RequestMsec), host)
 
 	}
 
 	// UpstreamZones
 	for name, upstreamList := range nginxVtx.UpstreamZones {
-		for _, s := range upstreamList {
-			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["requestMsec"], prometheus.GaugeValue, float64(s.RequestMsec), name, s.Server)
-			if float64(s.RequestMsec) == 0 {
-				ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["responseMsec"], prometheus.GaugeValue, float64(0), name, s.Server)
+		for i, s := range upstreamList {
+			//	oldValue := "nginxVtx.UpstreamZonesCache." + name + s.Server
+			//	log.Printf("%d %s", i, oldValue)
+			//如果server没有请求,强制响应时间为0
+			if len(nginxVtx.UpstreamZonesCache[name]) > i {
+				if s.Server == nginxVtx.UpstreamZonesCache[name][i].Server {
+					if s.RequestCounter == nginxVtx.UpstreamZonesCache[name][i].RequestCounter {
+						ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["responseMsec"], prometheus.GaugeValue, float64(0), name, s.Server)
+					} else {
+						ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["responseMsec"], prometheus.GaugeValue, float64(s.ResponseMsec), name, s.Server)
+					}
+				}
 			}
+			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["requestMsec"], prometheus.GaugeValue, float64(s.RequestMsec), name, s.Server)
 			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["requests"], prometheus.CounterValue, float64(s.RequestCounter), name, "total", s.Server)
 			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["requests"], prometheus.CounterValue, float64(s.Responses.OneXx), name, "1xx", s.Server)
 			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["requests"], prometheus.CounterValue, float64(s.Responses.TwoXx), name, "2xx", s.Server)
@@ -314,15 +336,31 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["bytes"], prometheus.CounterValue, float64(s.InBytes), name, "in", s.Server)
 			ch <- prometheus.MustNewConstMetric(e.upstreamMetrics["bytes"], prometheus.CounterValue, float64(s.OutBytes), name, "out", s.Server)
 		}
+
 	}
+
+	fileTemp, err := json.Marshal(temp)
+	if err != nil {
+		fmt.Println("json.Marshal failed:", err)
+		return
+	}
+
+	fileName := pid + "-Upstream.json"
+	outputFile, outputError := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE, 0666)
+	if outputError != nil {
+		fmt.Printf("An error occurred with file opening or creation\n")
+		return
+	}
+	outputWriter := bufio.NewWriter(outputFile)
+	outputWriter.WriteString(string(fileTemp))
+	outputWriter.Flush()
+	defer outputFile.Close()
 
 	// FilterZones
 	for filter, values := range nginxVtx.FilterZones {
 		for name, stat := range values {
 			ch <- prometheus.MustNewConstMetric(e.filterMetrics["requestMsec"], prometheus.GaugeValue, float64(stat.RequestMsec), filter, name)
-			if float64(stat.RequestMsec) == 0 {
-				ch <- prometheus.MustNewConstMetric(e.filterMetrics["responseMsec"], prometheus.GaugeValue, float64(0), filter, name)
-			}
+			ch <- prometheus.MustNewConstMetric(e.filterMetrics["responseMsec"], prometheus.GaugeValue, float64(stat.ResponseMsec), filter, name)
 			ch <- prometheus.MustNewConstMetric(e.filterMetrics["requests"], prometheus.CounterValue, float64(stat.RequestCounter), filter, name, "total")
 			ch <- prometheus.MustNewConstMetric(e.filterMetrics["requests"], prometheus.CounterValue, float64(stat.Responses.OneXx), filter, name, "1xx")
 			ch <- prometheus.MustNewConstMetric(e.filterMetrics["requests"], prometheus.CounterValue, float64(stat.Responses.TwoXx), filter, name, "2xx")
