@@ -345,6 +345,11 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 
+	err3 := os.Truncate(fileName, 0)
+	if err3 != nil {
+		log.Printf("os.Truncate failed: ", err3)
+		//		return
+	}
 	outputFile, outputError := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE, 0666)
 	if outputError != nil {
 		fmt.Printf("An error occurred with file opening or creation\n")
